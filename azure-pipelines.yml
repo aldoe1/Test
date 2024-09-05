@@ -1,0 +1,81 @@
+# Maven
+# Build your Java project and run tests with Apache Maven.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/java
+
+#trigger:
+#- master
+##schedules:
+##- cron: '40 20 1 7 *'
+##  displayName: Prueba ejecución planeada
+##  branches:
+##    include:
+##    - 
+##  always: true 
+
+trigger: none
+pr: none
+
+# Define the agent pool to run the pipeline
+pool:
+  name: MV
+
+# Define pipeline-wide variables
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+  testSuiteId: ''
+  testPlanId: ''
+
+# Define the steps of the pipeline
+steps:
+#- script: |
+#    git config --system core.longpaths true
+#  displayName: 'Enable long paths support in Git'
+
+# Step to compile the project and prepare tests
+# It cleans, compiles the project, compiles tests, and assembles a single package, skipping actual test execution
+- task: Maven@3
+  displayName: 'Compile and prepare tests'
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'clean install' 
+    options: '-DskipTests'
+
+
+- task: Maven@3
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'exec:java'
+    options: '-Dexec.mainClass=start.AzureGetTestNames'
+  name: generateTestNames
+  displayName: 'Generate test names for execution'
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    AZURE_ORG_URL: $(System.TeamFoundationCollectionUri)  # Azure DevOps Organization URL
+    AZURE_PROJECT_NAME: $(System.TeamProject)  # Azure DevOps Project Name
+    TEST_SUITE_ID: $(testSuiteId)
+    TEST_PLAN_ID: $(testPlanId)
+    BUILD_ID: $(Build.BuildId)
+
+
+# Maven task to run the specified tests
+# This step executes the tests that were determined in the previous step, publishes JUnit results, and handles test execution failures
+- task: Maven@3
+  displayName: 'Run specified tests'
+  inputs:
+    mavenPomFile: 'pom.xml'
+    goals: 'surefire:test'
+    options: '-Dtest=$(testsToRun) -Dmaven.test.failure.ignore=true -DfailIfNoTests=false'
+    publishJUnitResults: true
+    testResultsFiles: '**/surefire-reports/TEST-*.xml'
+  env:
+    testsToRun: $(generateTestNames.testsToRun)
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    AZURE_ORG_URL: $(System.TeamFoundationCollectionUri)  # Azure DevOps Organization URL
+    AZURE_PROJECT_NAME: $(System.TeamProject)  # Azure DevOps Project Name
+    TEST_SUITE_ID: $(testSuiteId)
+    TEST_PLAN_ID: $(testPlanId)
+    BUILD_ID: $(Build.BuildId)
+  timeoutInMinutes: 180
